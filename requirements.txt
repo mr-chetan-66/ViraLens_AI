@@ -9,3 +9,4 @@ python-dotenv
 groq
 tavily-python
 ddgs
+google-genai

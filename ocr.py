@@ -4,7 +4,7 @@ import base64
 from PIL import Image
 import pytesseract
 from dotenv import load_dotenv
-from llm import GROQ_VISION_MODEL
+from llm import GROQ_TIMEOUT_SECONDS, GROQ_VISION_MODEL
 
 load_dotenv()
 
@@ -41,7 +41,7 @@ def _extract_via_groq_vision(image: Image.Image) -> str | None:
 
     try:
         from groq import Groq
-        client = Groq(api_key=api_key)
+        client = Groq(api_key=api_key, timeout=GROQ_TIMEOUT_SECONDS, max_retries=0)
         
         buffered = io.BytesIO()
         image.save(buffered, format="JPEG")

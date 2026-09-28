@@ -61,18 +61,19 @@ def save_check(result: dict, input_type: str = "text") -> int | None:
     return row_id
 
 
-def list_checks(limit: int = 20) -> list:
+def list_checks(limit: int | None = None) -> list:
     init_db()
     conn = _connect()
-    rows = conn.execute(
-        """
+    query = """
         SELECT id, created_at, input_type, input_preview, verdict, confidence
         FROM checks
         ORDER BY id DESC
-        LIMIT ?
-        """,
-        (limit,),
-    ).fetchall()
+    """
+    if limit is not None:
+        query += " LIMIT ?"
+        rows = conn.execute(query, (max(0, limit),)).fetchall()
+    else:
+        rows = conn.execute(query).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -87,3 +88,23 @@ def get_check(check_id: int) -> dict | None:
     if not row:
         return None
     return json.loads(row["result_json"])
+
+
+def delete_check(check_id: int) -> bool:
+    init_db()
+    conn = _connect()
+    cur = conn.execute("DELETE FROM checks WHERE id = ?", (check_id,))
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
+
+
+def delete_all_checks() -> int:
+    init_db()
+    conn = _connect()
+    cur = conn.execute("DELETE FROM checks")
+    conn.commit()
+    deleted_count = cur.rowcount
+    conn.close()
+    return deleted_count

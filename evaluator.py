@@ -190,7 +190,9 @@ def evaluate_sources_against_claim(claim: str, sources: list) -> list:
                     "stance": ev.get("stance", "Not directly relevant"),
                     "key_finding": ev.get("key_finding", orig.get("content", "")[:180]),
                     "matches_specifics": ev.get("matches_specifics", False),
-                    "credibility_weight": ev.get("credibility_weight", "Medium")
+                    "credibility_weight": ev.get("credibility_weight", "Medium"),
+                    "published_at": orig.get("published_at"),
+                    "published_age_days": orig.get("published_age_days")
                 })
         return results if results else evaluate_evidence_fallback(claim, sources)
     except Exception as e:

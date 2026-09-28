@@ -157,12 +157,17 @@ def compute_verdict_and_confidence(claim: str, evaluated_evidence: list) -> dict
         verdict_sub_type = "Insufficient Evidence"
 
     # Compute Confidence Score (0-100%) with enhanced factors
+    # Prioritize source quality and corroboration, while keeping a realistic range for
+    # rumor-only or unsupported claims.
+    def clamp(value, low=0, high=100):
+        return max(low, min(high, value))
+
     if verdict == "Unclear":
-        base_confidence = 35
+        base_confidence = 30
         if only_rumor_support or verdict_sub_type == "Rumor-Based Claims":
-            base_confidence = 15  # Very low confidence for rumor-based claims
+            base_confidence = 12
         elif verdict_sub_type == "Unverified Claims":
-            base_confidence = 20  # Low confidence for unverified claims
+            base_confidence = 18
         confidence = base_confidence
         if verdict_sub_type == "Rumor-Based Claims":
             rationale = "Claim is only supported by unverified social media posts and rumors. No credible news or official sources found."
@@ -172,60 +177,58 @@ def compute_verdict_and_confidence(claim: str, evaluated_evidence: list) -> dict
             rationale = "Available evidence is conflicting or insufficient to draw a definitive conclusion."
     elif verdict == "Contradicted":
         active_sources = contradicting
-        base_score = 50
-        
-        # Source type quality boost
-        if any(e.get("news_type") == "Confirmed Official" for e in active_sources):
-            base_score += 30
-        elif any(e.get("news_type") == "Confirmed News" for e in active_sources):
-            base_score += 20
-        elif any(e.get("news_type") == "Rumor/Insider" for e in active_sources):
-            base_score += 10
-        
-        # Tier quality boost (complementary to source type)
-        if any(e["tier"] == 1 for e in active_sources):
-            base_score += 15
-        elif any(e["tier"] == 2 for e in active_sources):
-            base_score += 10
-        elif any(e["tier"] == 3 for e in active_sources):
-            base_score += 5
+        base_score = 42
 
-        # Corroboration boost (more than 1 independent source)
+        if any(e.get("news_type") == "Confirmed Official" for e in active_sources):
+            base_score += 28
+        elif any(e.get("news_type") == "Confirmed News" for e in active_sources):
+            base_score += 18
+        elif any(e.get("news_type") == "Rumor/Insider" for e in active_sources):
+            base_score += 8
+
+        if any(e["tier"] == 1 for e in active_sources):
+            base_score += 12
+        elif any(e["tier"] == 2 for e in active_sources):
+            base_score += 8
+        elif any(e["tier"] == 3 for e in active_sources):
+            base_score += 4
+
         if len(active_sources) >= 2:
             base_score += 12
         if any(e.get("matches_specifics") for e in active_sources):
             base_score += 8
+        if any(e.get("published_age_days") is not None and e.get("published_age_days") <= 30 for e in active_sources):
+            base_score += 4
 
-        confidence = min(base_score, 96)
+        confidence = clamp(base_score + 5, 0, 96)
         official_count = sum(1 for e in active_sources if e.get("news_type") == "Confirmed Official")
         rationale = f"Contradicted by {len(active_sources)} source(s) ({official_count} official) indicating factual inaccuracies."
-    else: # Supported
+    else:  # Supported
         active_sources = supporting
-        base_score = 50
-        
-        # Source type quality boost
-        if any(e.get("news_type") == "Confirmed Official" for e in active_sources):
-            base_score += 30
-        elif any(e.get("news_type") == "Confirmed News" for e in active_sources):
-            base_score += 20
-        elif any(e.get("news_type") == "Rumor/Insider" for e in active_sources):
-            base_score += 10
-        
-        # Tier quality boost
-        if any(e["tier"] == 1 for e in active_sources):
-            base_score += 15
-        elif any(e["tier"] == 2 for e in active_sources):
-            base_score += 10
-        elif any(e["tier"] == 3 for e in active_sources):
-            base_score += 5
+        base_score = 45
 
-        # Corroboration boost
+        if any(e.get("news_type") == "Confirmed Official" for e in active_sources):
+            base_score += 28
+        elif any(e.get("news_type") == "Confirmed News" for e in active_sources):
+            base_score += 18
+        elif any(e.get("news_type") == "Rumor/Insider" for e in active_sources):
+            base_score += 8
+
+        if any(e["tier"] == 1 for e in active_sources):
+            base_score += 12
+        elif any(e["tier"] == 2 for e in active_sources):
+            base_score += 8
+        elif any(e["tier"] == 3 for e in active_sources):
+            base_score += 4
+
         if len(active_sources) >= 2:
             base_score += 12
         if any(e.get("matches_specifics") for e in active_sources):
             base_score += 8
+        if any(e.get("published_age_days") is not None and e.get("published_age_days") <= 30 for e in active_sources):
+            base_score += 4
 
-        confidence = min(base_score, 95)
+        confidence = clamp(base_score, 0, 96)
         official_count = sum(1 for e in active_sources if e.get("news_type") == "Confirmed Official")
         rationale = f"Supported by {len(active_sources)} source(s) ({official_count} official) confirming the details."
 
@@ -245,7 +248,9 @@ def compute_verdict_and_confidence(claim: str, evaluated_evidence: list) -> dict
                 "news_type": e.get("news_type", "Unverified"),
                 "stance": e["stance"],
                 "finding": e.get("key_finding", ""),
-                "credibility_weight": e.get("credibility_weight", "Medium")
+                "credibility_weight": e.get("credibility_weight", "Medium"),
+                "published_at": e.get("published_at"),
+                "published_age_days": e.get("published_age_days")
             })
             seen_urls.add(e["url"])
 

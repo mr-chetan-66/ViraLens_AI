@@ -7,6 +7,12 @@ load_dotenv()
 # We can use Groq client if installed and configured
 from llm import get_groq_client, GROQ_TEXT_MODEL
 
+ATTRIBUTED_QUOTE_PATTERN = re.compile(
+    r"[\"“‘].+?[\"”’][.!?,;:]*\s*(?:[-–—]\s*|\bby\s+)"
+    r"[A-Z][A-Za-z.'’]*(?:\s+[A-Z][A-Za-z.'’]*){1,3}\s*$",
+    re.DOTALL,
+)
+
 EXTRACTION_SYSTEM_PROMPT = """You are an expert fact-checking claim analyzer with advanced nuance detection.
 Your job is to break the given input text into individual distinct statements and classify each sentence/statement into one of two categories:
 1. "factual": A verifiable factual claim (e.g. contains specific actions, events, numbers, dates, statistics, quotes, government policies, scientific claims that can be proven true or false).
@@ -83,6 +89,14 @@ def extract_and_classify_claims(text: str) -> list:
     cleaned_input = text.strip()
     if not cleaned_input:
         return []
+
+    if ATTRIBUTED_QUOTE_PATTERN.search(cleaned_input):
+        return [{
+            "text": cleaned_input,
+            "is_factual": True,
+            "category": "Attributed quote",
+            "reason": "The quote's wording and attribution can be checked against reliable sources."
+        }]
 
     client = get_groq_client()
     if not client:

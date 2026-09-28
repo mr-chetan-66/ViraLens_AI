@@ -1,19 +1,37 @@
 import os
+from threading import Event, Lock
+from uuid import uuid4
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from utils import process_claim_text, process_claim_image
 from ocr import is_video_file
-from storage import init_db, save_check, list_checks, get_check
+from cancellation import ProcessingCancelled
 
-init_db()
+active_checks: dict[str, Event] = {}
+active_checks_lock = Lock()
+
+
+def register_check(request_id: str | None) -> tuple[str, Event]:
+    request_id = request_id or uuid4().hex
+    with active_checks_lock:
+        if request_id in active_checks:
+            raise HTTPException(status_code=409, detail="A check with this request ID is already active.")
+        cancel_event = Event()
+        active_checks[request_id] = cancel_event
+    return request_id, cancel_event
+
+
+def unregister_check(request_id: str, cancel_event: Event) -> None:
+    with active_checks_lock:
+        if active_checks.get(request_id) is cancel_event:
+            active_checks.pop(request_id, None)
 
 app = FastAPI(
     title="ViraLens AI API",
@@ -32,17 +50,12 @@ app.add_middleware(
 
 class TextClaimRequest(BaseModel):
     text: str
-    groq_api_key: Optional[str] = None
-    tavily_api_key: Optional[str] = None
-    serper_api_key: Optional[str] = None
+    request_id: str | None = None
 
 @app.get("/api/health")
 def health_check():
     return {
         "status": "online",
-        "has_groq_key": bool(os.getenv("GROQ_API_KEY")),
-        "has_tavily_key": bool(os.getenv("TAVILY_API_KEY")),
-        "has_serper_key": bool(os.getenv("SERPER_API_KEY")),
         "has_duckduckgo": True
     }
 
@@ -51,24 +64,28 @@ def check_text_claim(req: TextClaimRequest):
     if not req.text or not req.text.strip():
         raise HTTPException(status_code=400, detail="Claim text cannot be empty.")
 
-    # Apply temporary keys if provided by user in UI
-    if req.groq_api_key:
-        os.environ["GROQ_API_KEY"] = req.groq_api_key
-    if req.tavily_api_key:
-        os.environ["TAVILY_API_KEY"] = req.tavily_api_key
-    if req.serper_api_key:
-        os.environ["SERPER_API_KEY"] = req.serper_api_key
+    request_id, cancel_event = register_check(req.request_id)
+    try:
+        return process_claim_text(req.text, cancel_event=cancel_event)
+    except ProcessingCancelled as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    finally:
+        unregister_check(request_id, cancel_event)
 
-    result = process_claim_text(req.text)
-    save_check(result, input_type="text")
-    return result
+
+@app.post("/api/check/cancel/{request_id}")
+def cancel_check(request_id: str):
+    with active_checks_lock:
+        cancel_event = active_checks.get(request_id)
+    if cancel_event is None:
+        return {"cancelled": False}
+    cancel_event.set()
+    return {"cancelled": True}
 
 @app.post("/api/check-image")
 async def check_image_claim(
     file: UploadFile = File(...),
-    groq_api_key: Optional[str] = Form(None),
-    tavily_api_key: Optional[str] = Form(None),
-    serper_api_key: Optional[str] = Form(None)
+    request_id: str | None = Form(None),
 ):
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded.")
@@ -82,30 +99,14 @@ async def check_image_claim(
             "skipped_opinions": []
         }
 
-    if groq_api_key:
-        os.environ["GROQ_API_KEY"] = groq_api_key
-    if tavily_api_key:
-        os.environ["TAVILY_API_KEY"] = tavily_api_key
-    if serper_api_key:
-        os.environ["SERPER_API_KEY"] = serper_api_key
-
     file_bytes = await file.read()
-    result = process_claim_image(file_bytes, filename=file.filename)
-    save_check(result, input_type="image")
-    return result
-
-
-@app.get("/api/history")
-def history(limit: int = 20):
-    return {"items": list_checks(limit=limit)}
-
-
-@app.get("/api/history/{check_id}")
-def history_item(check_id: int):
-    item = get_check(check_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="History item not found")
-    return item
+    request_id, cancel_event = register_check(request_id)
+    try:
+        return process_claim_image(file_bytes, filename=file.filename, cancel_event=cancel_event)
+    except ProcessingCancelled as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    finally:
+        unregister_check(request_id, cancel_event)
 
 # Serve React production build if available
 frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
