@@ -52,42 +52,61 @@ Give it a claim — typed or in a screenshot/photo — and it returns a **clear 
 
 ## 📋 Installation & Running
 
-### 1. Backend Setup
-```bash
-# Navigate to project root
-cd "e:/AIML/ViraLens AI"
+### Prerequisites
+- Python 3.10 or newer
+- Node.js and npm
+- API keys for Groq and Tavily (at minimum)
+- Optional: Tesseract OCR for local image text extraction. Without it, image OCR uses Groq Vision.
 
-# Install Python requirements
-pip install -r requirements.txt
+Run the following commands in PowerShell from the project root.
+
+### 1. Install Dependencies
+```bash
+# Create and activate a Python virtual environment
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# Install backend dependencies
+python -m pip install -r requirements.txt
+
+# Install frontend dependencies
+cd frontend
+npm install
+cd ..
 ```
 
 ### 2. Configure API Keys
-Copy `.env.example` to `.env`:
+Create your local `.env` file from the example:
 ```bash
-copy .env.example .env
+Copy-Item .env.example .env
 ```
-Fill in your free keys:
-- `GROQ_API_KEY`: Get a free key at [console.groq.com](https://console.groq.com)
-- `TAVILY_API_KEY`: Get a free search key at [tavily.com](https://tavily.com)
-*(Note: You can also enter or change keys directly in the web UI sidebar/drawer)*
+Add your keys to `.env`:
+- `GROQ_API_KEY`: [console.groq.com](https://console.groq.com)
+- `TAVILY_API_KEY`: [tavily.com](https://tavily.com)
+
+The example also includes optional Serper and Gemini keys. If Tesseract is installed outside a standard Windows location, set `TESSERACT_CMD` in `.env` to its executable path. Keys can also be entered or changed in the web UI.
 
 ### 3. Running the App
 
-#### Option A: Unified Full-Stack Server (Recommended)
-Since the production frontend is pre-built into `frontend/dist`, you can simply run:
+#### Option A: Single server
+Build the frontend, then start the backend (run both commands from the project root):
 ```bash
+npm --prefix frontend run build
 python api.py
 ```
-Then open your browser at **http://127.0.0.1:8000**!
+Open **http://127.0.0.1:8000**.
 
-#### Option B: Development Mode (with Vite Hot Reload)
-1. In terminal 1 (Backend):
+#### Option B: Development mode with hot reload
+Open two PowerShell terminals, both starting in the project root.
+
+Terminal 1, start the backend:
    ```bash
    python api.py
    ```
-2. In terminal 2 (Frontend with live reload):
+
+Terminal 2, start the Vite frontend:
    ```bash
    cd frontend
    npm run dev
    ```
-   Open **http://localhost:5173**.
+Open **http://localhost:5173**.
