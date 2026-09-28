@@ -1,0 +1,232 @@
+# Build ViraLens AI — A Straight-Answer Fact Checker (Text + Photo)
+
+ViraLens AI is a fact-checking tool for people who don't want to blindly
+believe what they read online, but also don't have the time or inclination
+to dig through sources themselves. Give it a claim — typed or in a
+screenshot/photo — and it returns a clear verdict, a confidence score, and
+the exact trustworthy sources behind that verdict.
+
+This is NOT a chatbot. It does not chat, debate, or give opinions. It
+takes a claim in, and returns a verdict + evidence out.
+
+---
+
+## 1. Inputs (only two)
+
+1. **Text** — paste any claim, sentence, forwarded message, or post.
+2. **Photo / Screenshot** — upload an image containing a claim (a
+   WhatsApp forward, a news screenshot, a poster, an infographic, a meme
+   with text). Run OCR to pull out the text, then treat it the same as
+   a text input.
+
+No video, no audio, no reels. If someone uploads a video, show a plain
+message: "Video isn't supported — please paste the claim as text or a
+screenshot."
+
+---
+
+## 2. Claim Extraction
+
+Don't verify the whole paragraph as one blob. Break it into individual
+factual claims first.
+
+Also classify each sentence as:
+- Verifiable factual claim → goes to verification
+- Opinion / prediction / rhetorical / satire → skipped, labeled as such
+  so the user understands why it wasn't fact-checked
+
+Example:
+
+Input: "The government gave every student ₹50,000 last month. This is
+the best scheme ever."
+
+Claim 1 (factual): "The government gave every student ₹50,000 last month."
+→ Verify
+
+Claim 2 (opinion): "This is the best scheme ever."
+→ Not a factual claim — skipped
+
+
+---
+
+## 3. Research: Real Web Search, Strong Sources Only
+
+This is the core of the product. No local/curated dataset — pull live
+from the web, but filter hard for source quality.
+
+**Source tiers** (search and weight results in this order):
+1. **Tier 1 — Primary/Official:** government sites (.gov, PIB, official
+   ministry pages), court records, official company filings, primary
+   data (census, RBI, WHO, etc.)
+2. **Tier 2 — Established fact-checkers:** PIB Fact Check, AltNews,
+   BOOM, Snopes, FactCheck.org, Full Fact, Reuters Fact Check, AP
+   Fact Check
+3. **Tier 3 — Reputable news wires/outlets:** Reuters, AP, BBC, PTI,
+   The Hindu, Indian Express (established editorial standards)
+4. **Tier 4 — Everything else:** blogs, social posts, unverified sites
+   — usable only as context, never as the basis for a verdict
+
+Use a web search API (Tavily, Serper, or similar — pick one with a
+usable free tier) to pull live results, then rank/filter by the tiers
+above before an LLM ever sees them.
+
+Research loop (kept simple, not agentic-for-its-own-sake):
+
+Generate search query from claim
+→ Run web search
+→ Filter/rank by source tier
+→ If nothing from Tier 1–3 found → try 1 reformulated query
+→ Still nothing solid → return "Unclear / Insufficient Evidence"
+
+Cap it at 2 search attempts per claim. No infinite loops.
+
+---
+
+## 4. Evidence Evaluation
+
+For each piece of retrieved evidence, check:
+- Does it actually address THIS specific claim (not just the general topic)?
+- Does it support, contradict, or say nothing specific about it?
+- Does it match on the specific numbers/dates/names in the claim, not
+  just the general subject?
+
+Example:
+
+Claim: "The scheme gives ₹50,000 per student."
+Evidence found: Official notice says ₹15,000 per student.
+→ Contradicted (specific number doesn't match)
+
+
+Classify each source's evidence as: Supporting / Contradicting /
+Not directly relevant.
+
+---
+
+## 5. Verdict + Confidence Score
+
+Every factual claim gets exactly one of:
+- ✅ **Supported**
+- ❌ **Contradicted**
+- ⚠️ **Unclear** (evidence is missing, weak, or conflicting)
+
+Plus a **Confidence Score (0–100%)** based on:
+- Quality/tier of the sources found
+- How directly the evidence matches the specific claim (exact numbers/
+  dates/names vs. general topic)
+- Agreement across multiple independent sources
+
+Never force Supported/Contradicted when the evidence doesn't clearly
+justify it — Unclear is a valid and honest answer.
+
+---
+
+## 6. Citation Check (no fake or loose citations)
+
+Before showing a source, confirm it actually backs the specific claim —
+not just the general subject.
+
+Claim: "Revenue grew 40% this year."
+Source found: Official filing — revenue grew 18%.
+Result: ❌ This source does NOT support the exact claim — flag as
+contradicting evidence, not supporting.
+
+
+Every source shown to the user must be a real, clickable link — never
+paraphrase a citation and never invent one.
+
+---
+
+## 7. Final Report (built for a non-expert reader)
+
+Plain language. No jargon. No fact-checking-lingo. This person is not
+going to click through five sources — the report has to do that work
+for them.
+
+CLAIM
+"The government gave every student ₹50,000 last month."
+
+VERDICT
+❌ Contradicted
+
+CONFIDENCE
+92%
+
+WHAT WE FOUND
+The official scheme gives ₹15,000 per student, not ₹50,000.
+[Source: Ministry of Education official notice — link]
+
+Two independent news reports confirm the ₹15,000 figure.
+[Source: Reuters — link]
+[Source: PIB Fact Check — link]
+
+IN SIMPLE TERMS
+The claim exaggerates the actual amount by more than 3x. The real
+scheme exists, but the number being shared is wrong.
+
+
+Rules for this report:
+- Always show real, verified, clickable source links
+- One short "in simple terms" line at the end — this is for someone
+  who won't read the technical evidence breakdown
+- Never show raw chain-of-thought — only the claim, verdict,
+  confidence, evidence, sources, and a plain-language summary
+
+---
+
+## 8. UI (Streamlit, minimal)
+
+┌─────────────────────────────────────┐
+│ ViraLens AI │
+│ │
+│ [ Paste text ] OR [ Upload │
+│ photo ] │
+│ │
+│ [ CHECK IT ] │
+└─────────────────────────────────────┘
+
+
+Progress shown while working (concise, no chain-of-thought):
+
+✓ Reading claim
+✓ Extracting factual statements
+✓ Searching trusted sources
+✓ Checking evidence
+✓ Verifying citations
+✓ Preparing report
+
+
+Results view: one card per claim, verdict badge, confidence % as a
+simple progress bar, expandable "See sources" section with real links.
+
+---
+
+## 9. Tech Stack (lean, free-tier friendly)
+
+Frontend/UI: Streamlit
+Backend: FastAPI (optional, only if you split UI/API)
+LLM: Groq (free-tier inference) or another free-tier LLM
+Web Search: Tavily / Serper (has a free tier) — real-time results
+OCR (photo): Tesseract or PaddleOCR (free, local)
+Storage: SQLite (simple; skip Postgres/Redis for MVP)
+
+
+No Whisper, no FFmpeg, no vector DB, no Laya/Jev, no semantic cache
+layer for the MVP — add reranking/hybrid retrieval later ONLY if plain
+web search + source-tier filtering isn't giving good enough evidence
+matching.
+
+---
+
+## 10. Non-Negotiable Principles
+
+- Never assume a screenshot is authentic just because it looks
+  official — always verify against an independent source.
+- Never hallucinate a source or a supporting quote. No evidence found
+  → the answer is "Unclear," not a guess.
+- Never bury the verdict in jargon — the whole point is that the user
+  shouldn't have to go digging themselves.
+- Every source shown must be a real, working, clickable link.
+- Confidence score reflects confidence in the VERIFICATION, not in
+  whether the original poster meant well.
+make this project with minimal complex first make a chunk wise detail process wha happen att each chunk and then start to develop
+make sure only develop and focus on what i said or given to you 
